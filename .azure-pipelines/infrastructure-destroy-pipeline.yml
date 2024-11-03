@@ -1,0 +1,35 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: AzureCredentials
+  - group: DatabaseCredentials  # Load database credentials from Azure DevOps
+  - name: subscription_id
+    value: "89a74d76-fc68-4766-8f2a-161e00d2c4bf"  # Replace with actual subscription ID
+
+steps:
+  - task: TerraformInstaller@0
+    inputs:
+      terraformVersion: 'latest'
+
+  - task: AzureCLI@2
+    inputs:
+      azureSubscription: 'Azure-Service-Connection'  # Replace with your Azure service connection
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        # Navigate to the directory containing your Terraform files
+        cd infrastructure
+
+        # Initialize Terraform
+        terraform init
+
+        # Plan and apply infrastructure changes
+        terraform destroy -auto-approve -var="sql_admin_username=$(SQL_ADMIN_USERNAME)" -var="sql_admin_password=$(SQL_ADMIN_PASSWORD)"
+
+    displayName: 'Destroy Infrastructure with Terraform'

@@ -1,0 +1,54 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: AzureCredentials
+  - group: DatabaseCredentials
+  - group: InfrastructureDetails
+
+steps:
+  - task: JavaToolInstaller@0
+    inputs:
+      versionSpec: '17'
+      jdkArchitectureOption: 'x64'
+      jdkSourceOption: 'PreInstalled'
+
+  - script: |
+      chmod +x ./mvnw
+      ./mvnw clean package -DskipTests
+    displayName: 'Build Backend'
+
+  - task: AzureCLI@2
+    inputs:
+      azureSubscription: 'Azure-Service-Connection-1'
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        # Login to ACR
+        az acr login --name devopsassignmentacr
+        
+        # Build Docker image
+        docker build -t devopsassignmentacr.azurecr.io/backend-image:$(Build.BuildId) -f backend/Dockerfile .
+        
+        # Push image with Build ID tag
+        docker push devopsassignmentacr.azurecr.io/backend-image:$(Build.BuildId)
+        
+        # Tag and push latest
+        docker tag devopsassignmentacr.azurecr.io/backend-image:$(Build.BuildId) devopsassignmentacr.azurecr.io/backend-image:latest
+        docker push devopsassignmentacr.azurecr.io/backend-image:latest
+    displayName: 'Build and Push Docker Image'
+
+  - task: Kubernetes@1
+    inputs:
+      connectionType: 'Azure Resource Manager'
+      azureSubscriptionEndpoint: 'Azure-Service-Connection-1'
+      azureResourceGroup: 'devops_assignment_rg'
+      kubernetesCluster: 'devopsAssignmentAKS'
+      command: 'apply'
+      arguments: '-f k8s/backend-deployment.yml'
+    displayName: 'Deploy to AKS'

@@ -1,0 +1,86 @@
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+- task: HelmInstaller@0
+  inputs:
+    helmVersion: '3.12.0'  # Specify a stable version
+    installKubectl: true
+
+- task: AzureCLI@2
+  inputs:
+    azureSubscription: 'Azure-Service-Connection-1'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      # Get AKS credentials
+      echo "Getting AKS credentials..."
+      az aks get-credentials --resource-group devops_assignment_rg --name devopsAssignmentAKS --overwrite-existing
+
+      # Remove any existing nginx-ingress installation
+      echo "Removing existing ingress if any..."
+      helm uninstall nginx-ingress --namespace default || true
+      
+      # Wait for resources to be cleaned up
+      echo "Waiting for cleanup..."
+      sleep 30
+      
+      # Add and update helm repo
+      echo "Adding helm repo..."
+      helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+      helm repo update
+      
+      # Install NGINX Ingress Controller with increased timeout
+      echo "Installing NGINX Ingress Controller..."
+      helm install nginx-ingress ingress-nginx/ingress-nginx \
+        --namespace default \
+        --create-namespace \
+        --set controller.replicaCount=1 \
+        --set controller.nodeSelector."kubernetes\.io/os"=linux \
+        --set defaultBackend.nodeSelector."kubernetes\.io/os"=linux \
+        --set controller.service.annotations."service\.beta\.kubernetes\.io/azure-load-balancer-health-probe-request-path"=/healthz \
+        --timeout 10m
+
+      # Wait for the pods to be ready
+      echo "Waiting for ingress controller pods..."
+      kubectl wait --for=condition=ready pod --selector=app.kubernetes.io/component=controller --namespace default --timeout=300s
+  displayName: 'Install Ingress Controller'
+
+- task: Kubernetes@1
+  inputs:
+    connectionType: 'Azure Resource Manager'
+    azureSubscriptionEndpoint: 'Azure-Service-Connection-1'
+    azureResourceGroup: 'devops_assignment_rg'
+    kubernetesCluster: 'devopsAssignmentAKS'
+    command: 'apply'
+    arguments: '-f k8s/ingress.yml'
+  displayName: 'Apply Ingress Configuration'
+
+- script: |
+    # Get the public IP with timeout
+    echo "Waiting for ingress public IP..."
+    COUNTER=0
+    MAX_TRIES=30
+    INGRESS_IP=""
+    
+    while [ $COUNTER -lt $MAX_TRIES ]; do
+      INGRESS_IP=$(kubectl get service nginx-ingress-ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+      if [ ! -z "$INGRESS_IP" ]; then
+        echo "Ingress IP found: $INGRESS_IP"
+        echo "Application will be accessible at: http://$INGRESS_IP"
+        break
+      fi
+      echo "Waiting for IP... Attempt $((COUNTER+1))/$MAX_TRIES"
+      COUNTER=$((COUNTER+1))
+      sleep 20
+    done
+
+    if [ -z "$INGRESS_IP" ]; then
+      echo "Failed to get ingress IP after $MAX_TRIES attempts"
+      kubectl get services -A
+      kubectl describe service nginx-ingress-ingress-nginx-controller
+      exit 1
+    fi
+  displayName: 'Get Application URL'
