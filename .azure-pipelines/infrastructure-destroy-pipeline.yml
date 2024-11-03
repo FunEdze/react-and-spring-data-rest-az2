@@ -9,8 +9,6 @@ pool:
 variables:
   - group: AzureCredentials
   - group: DatabaseCredentials  # Load database credentials from Azure DevOps
-  - name: subscription_id
-    value: "89a74d76-fc68-4766-8f2a-161e00d2c4bf"  # Replace with actual subscription ID
 
 steps:
   - task: TerraformInstaller@0

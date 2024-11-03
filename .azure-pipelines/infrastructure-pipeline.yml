@@ -9,8 +9,6 @@ pool:
 variables:
   - group: AzureCredentials
   - group: DatabaseCredentials  # Make sure this variable group contains SQL_ADMIN_USERNAME and SQL_ADMIN_PASSWORD
-  - name: subscription_id
-    value: "89a74d76-fc68-4766-8f2a-161e00d2c4bf"
 
 steps:
   - task: TerraformInstaller@0
